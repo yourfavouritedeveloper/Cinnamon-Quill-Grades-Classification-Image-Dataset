@@ -13,6 +13,7 @@ The workflow includes preprocessing, augmentation, two CNN architectures, transf
 
 ## Project Structure
 
+```bash
 project/
 │── datasets/
 │ └── cinnamon/
@@ -30,6 +31,7 @@ project/
 │── test.py
 │── predict.py
 │── README.md
+```
 
 ---
 
