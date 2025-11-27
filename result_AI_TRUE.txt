@@ -1,0 +1,9 @@
+Model Evaluation Summary:
+Model      Optimizer  Loss  Accuracy F1
+resnet18   adam       CE    0.9137   0.9137
+
+Classwise Accuracy:
+Alba        : 0.9130
+C4          : 0.8929
+C5          : 0.9444
+C5 Special  : 0.9038	
