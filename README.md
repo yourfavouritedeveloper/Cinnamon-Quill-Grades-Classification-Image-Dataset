@@ -1,206 +1,298 @@
-# Cinnamon Quill Grade Classification (PyTorch)
+# Cinnamon Quill Grade Classification
 
-This project trains deep learning models to classify cinnamon quill images into four quality grades:
+A PyTorch deep learning pipeline for classifying cinnamon quill images into four commercial quality grades: **Alba**, **C4**, **C5**, and **C5 Special**.
 
-- **Alba**
-- **C4**
-- **C5**
-- **C5 Special**
+This project systematically compares two CNN architectures (ResNet18, VGG16) across two optimizers (SGD, Adam) and two training strategies (transfer learning, from scratch) — yielding **8 distinct experimental configurations**.
 
-The workflow includes preprocessing, augmentation, two CNN architectures, transfer learning experiments, TensorBoard monitoring, evaluation, and saving trained models in `.pth` format.
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Project Structure](#project-structure)
+3. [Installation](#installation)
+4. [Dataset](#dataset)
+5. [Architectures](#architectures)
+6. [Training Configurations](#training-configurations)
+7. [Running Experiments](#running-experiments)
+8. [Results](#results)
+9. [Prediction](#prediction)
+10. [Analysis](#analysis)
+
+---
+
+## Overview
+
+| Factor | Options |
+|---|---|
+| Architecture | ResNet18, VGG16 |
+| Optimizer | SGD, Adam |
+| Pretrained weights | Yes (ImageNet), No (from scratch) |
+| Classes | Alba, C4, C5, C5 Special |
+| Input size | 224 × 224 |
+| Loss function | CrossEntropyLoss |
+
+Each combination is a separate experiment. Results are logged to TensorBoard and a final summary table is printed after all runs complete.
 
 ---
 
 ## Project Structure
 
-```bash
+```
 project/
-│── datasets/
-│ └── cinnamon/
-│ ├── Alba/
-│ ├── C4/
-│ ├── C5/
-│ └── C5 Special/
+├── datasets/
+│   └── cinnamon/
+│       ├── Alba/
+│       ├── C4/
+│       ├── C5/
+│       └── C5 Special/
 │
-│── checkpoints/
-│ ├── saved_model_pretrained.pth
-│ └── saved_model_scratch.pth
+├── checkpoints/              # Saved .pth model files
+├── runs/                     # TensorBoard logs
 │
-│── utils.py
-│── train.py
-│── test.py
-│── predict.py
-│── README.md
+├── models/
+│   └── cinnamon_model.py     # ResNet18 and VGG16 factory functions
+│
+├── train.py                  # Runs all 8 experiments, prints summary
+├── predict.py                # Predict grade for a single image
+├── utils.py                  # Transforms, dataset loading, metrics
+└── README.md
 ```
 
 ---
 
-## 1. Dataset Preparation
+## Installation
 
-### Download dataset  
-Place cinnamon images in labeled class folders.
+```bash
+pip install torch torchvision tensorboard scikit-learn pillow
+```
 
-### Preprocessing  
-All images are resized and normalized:
-
-- Resize to **224×224**
-- Normalize using ImageNet mean/std
-- Convert to tensors
-
-### Data Augmentation  
-Used during training:
-
-- Random rotations  
-- Horizontal & vertical flips  
-- Random cropping  
-- Optional color jitter  
-
-These help models generalize better and deal with class imbalance.
+Tested with Python 3.9+, PyTorch 2.x.
 
 ---
 
-## 2. Dataset Splitting
+## Dataset
 
-Dataset is split using:
+Place images in class-named subdirectories:
 
-- **70% Training**
-- **15% Validation**
-- **15% Test**
+```
+datasets/cinnamon/
+    Alba/         ← highest grade
+    C4/
+    C5/
+    C5 Special/   ← specialty grade
+```
 
-Using `random_split` from PyTorch.
+The dataset is automatically split at runtime:
+
+| Split | Proportion |
+|---|---|
+| Training | 70% |
+| Validation | 15% |
+| Test | 15% |
+
+**Class imbalance** is addressed via `WeightedRandomSampler`, which oversamples minority classes during training.
+
+### Preprocessing
+
+All images are resized to 224 × 224 and normalized with ImageNet statistics:
+
+```
+mean = [0.485, 0.456, 0.406]
+std  = [0.229, 0.224, 0.225]
+```
+
+### Augmentation (training only)
+
+- `RandomHorizontalFlip`
+- `RandomVerticalFlip`
+- `RandomRotation(15°)`
+- `RandomResizedCrop(224, scale=(0.8, 1.0))`
 
 ---
 
-## 3. CNN Architectures
+## Architectures
 
-Two network architectures were created:
+Both architectures are defined in `models/cinnamon_model.py`.
 
-### **ResNet18**
-- With transfer learning
-- Without transfer learning (trained from scratch)
+### ResNet18
 
-### **VGG16**
-- With transfer learning
-- Without transfer learning
+A residual network with 18 layers. The final fully-connected layer is replaced:
 
-Toggle transfer learning:
+```
+Original:  fc → Linear(512, 1000)
+Modified:  fc → Linear(512, 4)
+```
+
+Residual skip connections make ResNet18 easier to optimize from scratch. Gradient flow is preserved across all layers, so even random-initialized training reaches reasonable accuracy.
+
+### VGG16
+
+A deep sequential network with 16 weight layers. The classifier head is replaced and regularized:
+
+```
+Original:  classifier[6] → Linear(4096, 1000)
+Modified:  classifier[5] → Dropout(0.5)          ← added for regularization
+           classifier[6] → Linear(4096, 4)
+```
+
+VGG16 has ~138M parameters vs ResNet18's ~11M. It benefits more from pretrained weights and is substantially slower to train from scratch.
+
+### Transfer Learning vs. From Scratch
 
 ```python
-use_pretrained = True    # Transfer learning
-use_pretrained = False   # Train from scratch
+# Transfer learning — loads ImageNet weights, fine-tunes on cinnamon data
+model = get_resnet18(pretrained=True)
+
+# From scratch — random initialization, trains entirely on cinnamon data
+model = get_resnet18(pretrained=False)
 ```
 
-## Final Classifier
-
-The final classifier layers are adapted for **4 output classes**: Alba, C4, C5, and C5 Special.
+When `pretrained=True`, the backbone retains learned feature detectors (edges, textures, shapes) from ImageNet. Only the final classifier is reinitialized. This is especially impactful when your dataset is small.
 
 ---
 
-## 4. Training
+## Training Configurations
 
-Both **ResNet18** and **VGG16** models were trained using the following configurations:
+### Optimizer Comparison
 
-### **Optimizers**
-- SGD  
-- Adam  
+| Property | SGD | Adam |
+|---|---|---|
+| Update rule | Gradient descent + momentum | Adaptive per-parameter learning rates |
+| Hyperparameters | `lr=0.001`, `momentum=0.9` | `lr=0.0001` |
+| Scheduler | `StepLR(step=7, γ=0.1)` | `StepLR(step=7, γ=0.1)` |
+| Typical behavior | Stable convergence, may need tuning | Faster convergence, less sensitive to lr |
 
-### **Loss Function**
-- CrossEntropyLoss  
+### Shared Settings
 
-### **Additional Training Details**
-- WeightedRandomSampler to reduce class imbalance  
-- Batch size = 8  
-- Learning rate scheduler  
-- Dropout added to VGG classifier  
-- Training and validation logs tracked in TensorBoard:
+| Hyperparameter | Value |
+|---|---|
+| Batch size | 8 |
+| Epochs | 15 |
+| Loss function | CrossEntropyLoss |
+| Sampler | WeightedRandomSampler |
+| Dropout (VGG only) | 0.5 |
+
+---
+
+## Running Experiments
+
+### Run all 8 experiments
+
+```bash
+python train.py
+```
+
+This trains every combination of architecture × optimizer × pretrained and prints a final comparison table. Each model is saved to `checkpoints/`.
+
+### TensorBoard
 
 ```bash
 tensorboard --logdir=runs
 ```
 
-## 5. Evaluation
+Each run is logged under a separate tag, e.g. `resnet18_adam_pretrained`, so loss/accuracy curves can be compared side by side.
 
-Models are evaluated on the **test set** using:
+### Checkpoint naming
 
-- Test accuracy  
-- Test loss  
-- F1-score  
-- Class-wise accuracy  
-- Confusion matrix  
-
-A final summary table is generated:
-
-| Model     | Optimizer | Loss | Accuracy | F1  | Classwise Accuracy |
-|-----------|-----------|------|----------|-----|---------------------|
-| ResNet18  | SGD       | ...  | ...      | ... | ...                 |
-| ResNet18  | Adam      | ...  | ...      | ... | ...                 |
-| VGG16     | SGD       | ...  | ...      | ... | ...                 |
-| VGG16     | Adam      | ...  | ...      | ... | ...                 |
+```
+checkpoints/
+    resnet18_sgd_pretrained.pth
+    resnet18_sgd_scratch.pth
+    resnet18_adam_pretrained.pth
+    resnet18_adam_scratch.pth
+    vgg16_sgd_pretrained.pth
+    vgg16_sgd_scratch.pth
+    vgg16_adam_pretrained.pth
+    vgg16_adam_scratch.pth
+```
 
 ---
 
-## 6. Saving Models
+## Results
 
-Each experiment saves a `.pth` model checkpoint:
+### Observed Results (ResNet18 + Adam)
 
-- `saved_model_pretrained.pth`  
-- `saved_model_scratch.pth`  
+| Pretrained | Accuracy | F1 Score |
+|---|---|---|
+| Yes (transfer learning) | **0.9137** | **0.9137** |
+| No (from scratch) | 0.7050 | 0.7050 |
 
-Saved using:
+Transfer learning improved accuracy by **~21 percentage points** on ResNet18 + Adam.
 
-```python
-torch.save({
-    "state_dict": model.state_dict(),
-    "optimizer": optimizer.state_dict()
-}, "checkpoints/model_name.pth")
-```
+### Class-wise Accuracy
 
-## 7. Prediction Script
+| Class | Pretrained | From Scratch |
+|---|---|---|
+| Alba | 0.9130 | 0.9231 |
+| C4 | **0.8929** | 0.3636 |
+| C5 | **0.9444** | 0.6667 |
+| C5 Special | **0.9038** | 0.7463 |
 
-A separate `predict.py` script loads a trained `.pth` model and predicts the class of a single input image.
+From scratch struggles most with **C4**, which is visually similar to C5. Pretrained features resolve this ambiguity because ImageNet already encodes fine texture discrimination.
 
-Run it with:
+### Full Experiment Summary Table
+
+After running `train.py`, a table like this is printed to stdout:
+
+| Model | Pretrained | Optimizer | Loss | Accuracy | F1 | Alba | C4 | C5 | C5 Special |
+|---|---|---|---|---|---|---|---|---|---|
+| ResNet18 | Yes | Adam | CE | 0.9137 | 0.9137 | 0.913 | 0.893 | 0.944 | 0.904 |
+| ResNet18 | No | Adam | CE | 0.7050 | 0.7050 | 0.923 | 0.364 | 0.667 | 0.746 |
+| ResNet18 | Yes | SGD | CE | — | — | — | — | — | — |
+| ResNet18 | No | SGD | CE | — | — | — | — | — | — |
+| VGG16 | Yes | Adam | CE | — | — | — | — | — | — |
+| VGG16 | No | Adam | CE | — | — | — | — | — | — |
+| VGG16 | Yes | SGD | CE | — | — | — | — | — | — |
+| VGG16 | No | SGD | CE | — | — | — | — | — | — |
+
+Fill remaining rows by running the full training suite.
+
+---
+
+## Prediction
+
+Load any saved checkpoint and classify a single image:
 
 ```bash
-python predict.py
+python predict.py \
+    --image datasets/cinnamon/C5/C5_01.JPG \
+    --model resnet18 \
+    --checkpoint checkpoints/resnet18_adam_pretrained.pth
 ```
 
-### Example Output
-```bash
-Image: datasets/cinnamon/C5/C5 01.JPG
-Predicted Grade: C5
+Example output:
+
+```
+===================================
+ Image:           datasets/cinnamon/C5/C5_01.JPG
+ Architecture:    resnet18
+ Checkpoint:      checkpoints/resnet18_adam_pretrained.pth
+ Predicted Grade: C5
+===================================
 ```
 
 ---
 
-## Completed Requirements Checklist
+## Analysis
 
-- [x] Download and preprocess dataset  
-- [x] Data augmentation  
-- [x] Train/Val/Test split  
-- [x] ResNet18 + VGG16 implemented  
-- [x] Transfer learning ON/OFF  
-- [x] Train using SGD & Adam  
-- [x] TensorBoard logging  
-- [x] Test accuracy and metrics  
-- [x] Save model in `.pth` format  
-- [x] Prediction script  
+### Architecture: ResNet18 vs VGG16
 
----
+**ResNet18** is generally preferred for this task because:
+- 11M parameters vs VGG16's 138M — far less risk of overfitting on a small dataset
+- Skip connections enable stable gradient flow when training from scratch
+- Faster training iteration (critical for rapid experimentation)
 
-## Notes
+**VGG16** may achieve competitive accuracy with pretrained weights but requires more regularization (dropout) and longer training time. Without pretrained weights it is significantly harder to optimize on a limited dataset. If dataset size increases substantially, VGG16's representational capacity may become an advantage.
 
-- Imbalanced data may require `WeightedRandomSampler`.  
-- Transfer learning typically increases performance.  
-- Include TensorBoard **accuracy / loss** plots in your report.
+### Optimizer: SGD vs Adam
 
----
+**Adam** converges faster and requires less learning rate tuning. For small datasets and fine-tuning, Adam with a low learning rate (`1e-4`) performs well out of the box and is the recommended default.
 
-## Final Goal
+**SGD with momentum** can match or exceed Adam's final accuracy given proper scheduling (`StepLR`). It often generalizes better when training time is not a constraint, and is the standard choice in the transfer learning literature (e.g., ResNet paper). Requires more careful hyperparameter selection.
 
-Build a reliable cinnamon grading model using deep learning and analyze how:
+### Transfer Learning: Pretrained vs From Scratch
 
-- **architecture choice** (ResNet vs. VGG), and  
-- **training strategy** (transfer learning vs. training from scratch)
+The results show a clear advantage for pretrained weights, particularly for minority classes (C4, C5). The ImageNet backbone provides robust feature representations even when cinnamon-specific training data is limited. Training from scratch converges more slowly and underperforms on visually ambiguous classes without substantially more data and augmentation.
 
-affect final performance.
+**Recommendation:** Use `ResNet18 + Adam + pretrained=True` as the production baseline. It achieves the best observed accuracy (91.4%), trains quickly, and generalizes well across all four grades.
