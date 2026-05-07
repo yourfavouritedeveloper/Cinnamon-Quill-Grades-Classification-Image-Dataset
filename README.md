@@ -20,6 +20,9 @@ We benchmark two architectures (ResNet18, VGG16), two optimizers (SGD, Adam), an
 - [Reproduction](#reproduction)
 
 ---
+## Checkpoints
+Download pretrained weights from [Google Drive](https://drive.google.com/drive/folders/1utO3mvk3HlIQtgHodx4GzwBcJ9t9Z01q?usp=sharing) and place in `checkpoints/`.
+
 
 ## Dataset
 
@@ -156,33 +159,33 @@ Eight experiments across the full factorial design:
 
 | Configuration | Accuracy | Weighted F1 |
 |---|---|---|
-| ResNet18 + Adam + **Pretrained** | **0.9137** | **0.9137** |
-| ResNet18 + Adam + Scratch | 0.7050 | 0.7050 |
-| Δ (transfer learning gain) | **+0.2087** | **+0.2087** |
+| ResNet18 + Adam + **Pretrained** | **0.9353** | **0.9355** |
+| ResNet18 + Adam + Scratch | 0.7266 | 0.7285 |
+| Δ (transfer learning gain) | **+0.2087** | **+0.2070** |
 
 ### Class-wise Accuracy Breakdown
 
 | Class | Pretrained | From Scratch | Δ |
 |---|---|---|---|
-| Alba | 0.9130 | 0.9231 | −0.010 |
-| **C4** | **0.8929** | 0.3636 | **+0.529** |
-| C5 | 0.9444 | 0.6667 | +0.278 |
-| C5 Special | 0.9038 | 0.7463 | +0.158 |
+| Alba | 1.0000 | 0.9355 | +0.065 |
+| **C4** | **0.8929** | 0.6429 | **+0.250** |
+| C5 | 0.9167 | 0.8750 | +0.042 |
+| C5 Special | 0.9286 | 0.5893 | +0.339 |
 
 ### Full Experiment Summary
 
 | Model | Pretrained | Optimizer | Accuracy | F1 | Alba | C4 | C5 | C5 Special |
 |---|---|---|---|---|---|---|---|---|
-| ResNet18 | ✅ | Adam | 0.9137 | 0.9137 | 0.913 | 0.893 | 0.944 | 0.904 |
-| ResNet18 | ❌ | Adam | 0.7050 | 0.7050 | 0.923 | 0.364 | 0.667 | 0.746 |
-| ResNet18 | ✅ | SGD | — | — | — | — | — | — |
-| ResNet18 | ❌ | SGD | — | — | — | — | — | — |
-| VGG16 | ✅ | Adam | — | — | — | — | — | — |
-| VGG16 | ❌ | Adam | — | — | — | — | — | — |
-| VGG16 | ✅ | SGD | — | — | — | — | — | — |
-| VGG16 | ❌ | SGD | — | — | — | — | — | — |
+| ResNet18 | ✅ | Adam | 0.9353 | 0.9355 | 1.0000 | 0.8929 | 0.9167 | 0.9286 |
+| ResNet18 | ❌ | Adam | 0.7266 | 0.7285 | 0.9355 | 0.6429 | 0.8750 | 0.5893 |
+| ResNet18 | ✅ | SGD | 0.8705 | 0.8734 | 1.0000 | 0.7500 | 0.8750 | 0.8571 |
+| ResNet18 | ❌ | SGD | 0.7626 | 0.7622 | 0.9355 | 0.7500 | 0.8750 | 0.6250 |
+| VGG16 | ✅ | Adam | 0.8129 | 0.8126 | 0.9677 | 0.6071 | 0.6250 | 0.9107 |
+| VGG16 | ❌ | Adam | 0.3597 | 0.3083 | 0.0000 | 0.0000 | 1.0000 | 0.4643 |
+| VGG16 | ✅ | SGD | 0.8993 | 0.8989 | 0.9355 | 0.9286 | 0.7917 | 0.9107 |
+| VGG16 | ❌ | SGD | 0.4748 | 0.4825 | 0.1613 | 0.3929 | 0.9583 | 0.4821 |
 
-*Run the full training suite to populate remaining rows.*
+
 
 ---
 
@@ -190,21 +193,32 @@ Eight experiments across the full factorial design:
 
 ### The Transfer Learning Gap Is Not Uniform
 
-The headline result — **+21pp accuracy from pretraining** — conceals a more important pattern. Alba accuracy is virtually unchanged (±1%) while C4 improves by **53 percentage points**. This is not an artifact of class imbalance; `WeightedRandomSampler` equalizes class frequency during training.
+The headline result — **+21pp accuracy from pretraining** — conceals a more important pattern. Alba
+accuracy improves by ~6pp while C4 improves by **25 percentage points**. This is not an artifact of
+class imbalance; `WeightedRandomSampler` equalizes class frequency during training.
 
-The asymmetry implies something structural: **C4 images contain discriminative features that ImageNet filters can detect, but that a from-scratch model cannot reliably learn from the available samples.**
+The asymmetry implies something structural: **C4 images contain discriminative features that ImageNet
+filters can detect, but that a from-scratch model cannot reliably learn from the available samples.**
 
-Alba, by contrast, is visually distinctive enough (tight, pale, uniform) that even randomly initialized features achieve high accuracy (92%). It is "easy" from the feature-learning perspective.
+Alba, by contrast, is visually distinctive enough that even randomly initialized features achieve high
+accuracy (93.6%). It is "easy" from the feature-learning perspective — pretraining pushes it to a
+perfect 100%, but the from-scratch baseline was already strong.
 
-> In fine-grained agricultural classification, **the hardest class is not the rarest — it is the one whose discriminative features are the most subtle and the most dependent on prior visual knowledge.**
+> In fine-grained agricultural classification, **the hardest class is not the rarest — it is the one
+> whose discriminative features are the most subtle and the most dependent on prior visual knowledge.**
 
 ### Why C4 Is the Hard Class
 
-C4 quills are visually intermediate. Their defining characteristics — slight surface irregularity, marginally looser roll geometry, subtle color shift — are encoded in **mid-frequency texture patterns**. These are precisely the patterns that layers 2–4 of a ResNet backbone (trained on ImageNet's diverse texture vocabulary) can detect, but that a from-scratch model needs far more data to learn.
+C4 quills are visually intermediate. Their defining characteristics — slight surface irregularity,
+marginally looser roll geometry, subtle color shift — are encoded in **mid-frequency texture patterns**.
+These are precisely the patterns that layers 2–4 of a ResNet backbone (trained on ImageNet's diverse
+texture vocabulary) can detect, but that a from-scratch model needs far more data to learn. The gap
+is stark: **89.3% with pretraining vs. 64.3% without** — the largest per-class delta in the experiment.
 
 ### Limitations
 
-- **Dataset size** — test set variance is significant; a single confusing sample can shift accuracy by several points
+- **Dataset size** — test set variance is significant; a single confusing sample can shift accuracy by
+  several points
 - **Single seed** — variance across random seeds is not reported; research-level claims require 3–5 seeds
 - **No statistical testing** — differences are reported as point estimates without confidence intervals
 - **Frozen vs. fully fine-tuned** — a systematic comparison of freezing strategies was not conducted
